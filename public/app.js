@@ -29,6 +29,7 @@ const els = {
   turnLabel: document.querySelector("#turnLabel"),
   currentWord: document.querySelector("#currentWord"),
   skipBtn: document.querySelector("#skipBtn"),
+  incorrectBtn: document.querySelector("#incorrectBtn"),
   correctBtn: document.querySelector("#correctBtn"),
   stopBtn: document.querySelector("#stopBtn"),
   roundReview: document.querySelector("#roundReview"),
@@ -47,6 +48,36 @@ if (roomFromUrl) {
 
 function setStatus(message) {
   els.status.textContent = message || "";
+}
+
+function playTone(frequency, duration = 0.08, type = "sine", volume = 0.08) {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  const context = playTone.context || new AudioContext();
+  playTone.context = context;
+  if (context.state === "suspended") {
+    context.resume();
+  }
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = type;
+  oscillator.frequency.value = frequency;
+  gain.gain.setValueAtTime(0.0001, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(volume, context.currentTime + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + duration);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + duration + 0.02);
+}
+
+function playWordSound() {
+  playTone(660, 0.07, "triangle", 0.07);
+}
+
+function playFinishSound() {
+  playTone(330, 0.1, "sine", 0.08);
+  setTimeout(() => playTone(494, 0.12, "sine", 0.07), 90);
 }
 
 async function api(path, data) {
@@ -151,7 +182,7 @@ function renderTimer() {
     els.timer.textContent = "--";
     return;
   }
-  els.timer.textContent = String(secondsLeft());
+  els.timer.textContent = state.room.roundExpired ? "0" : String(secondsLeft());
 }
 
 function renderRoundReview() {
@@ -164,6 +195,12 @@ function renderRoundReview() {
     const li = document.createElement("li");
     const word = document.createElement("strong");
     word.textContent = item.word;
+    if (item.result === "skipped") {
+      const tag = document.createElement("span");
+      tag.className = "review-tag";
+      tag.textContent = "Skipped";
+      word.append(" ", tag);
+    }
 
     const actions = document.createElement("div");
     actions.className = "review-actions";
@@ -207,7 +244,9 @@ function render() {
   const guesser = state.room.players.find(player => player.id !== state.room.turnPlayerId);
   const winner = state.room.players.find(player => player.id === state.room.winnerId);
   els.turnLabel.textContent = state.room.roundActive
-    ? `${explainer?.name || "Player"} explains, ${guesser?.name || "partner"} guesses`
+    ? state.room.roundExpired
+      ? "Time is up. Finish the last word."
+      : `${explainer?.name || "Player"} explains, ${guesser?.name || "partner"} guesses`
     : state.room.gameOver
       ? `${winner?.name || "Player"} wins`
       : state.room.players.length < 2
@@ -220,11 +259,15 @@ function render() {
     : "Ready?";
 
   const canPlay = Boolean(state.room.roundActive);
+  const canFinish = canPlay && isExplainer && state.room.roundExpired;
+  const canMarkWord = canPlay && isExplainer && state.room.hasCurrentWord;
   const canStartNewGame = state.room.gameOver && state.room.wordCount >= 2 && state.room.players.length >= 2;
   els.startBtn.textContent = state.room.gameOver ? "Start new game" : "Start round";
-  els.correctBtn.disabled = !canPlay || !isExplainer;
-  els.skipBtn.disabled = !canPlay || !isExplainer;
-  els.stopBtn.disabled = !canPlay || !isExplainer;
+  els.correctBtn.disabled = !canMarkWord;
+  els.incorrectBtn.disabled = !canMarkWord;
+  els.skipBtn.disabled = !canMarkWord;
+  els.stopBtn.disabled = !canFinish;
+  els.stopBtn.hidden = !canPlay;
   els.startBtn.disabled = canPlay || (!canStartNewGame && (state.room.wordCount < 2 || state.room.players.length < 2 || !isExplainer));
   els.turnSelect.disabled = true;
   els.secondsInput.disabled = canPlay || (!canStartNewGame && !isExplainer);
@@ -235,8 +278,8 @@ function startTimerLoop() {
   if (state.timerId) clearInterval(state.timerId);
   state.timerId = setInterval(() => {
     renderTimer();
-    if (state.room?.roundActive && secondsLeft() === 0) {
-      els.currentWord.textContent = "Time!";
+    if (state.room?.roundActive && !state.room.roundExpired && secondsLeft() === 0) {
+      els.turnLabel.textContent = "Time is up. Finish the last word.";
     }
   }, 250);
 }
@@ -309,6 +352,18 @@ els.correctBtn.addEventListener("click", async () => {
     const payload = await api(`/api/rooms/${state.room.code}/correct`);
     state.room = payload.room;
     render();
+    playWordSound();
+  } catch (error) {
+    setStatus(error.message);
+  }
+});
+
+els.incorrectBtn.addEventListener("click", async () => {
+  try {
+    const payload = await api(`/api/rooms/${state.room.code}/incorrect`);
+    state.room = payload.room;
+    render();
+    playWordSound();
   } catch (error) {
     setStatus(error.message);
   }
@@ -319,6 +374,7 @@ els.skipBtn.addEventListener("click", async () => {
     const payload = await api(`/api/rooms/${state.room.code}/skip`);
     state.room = payload.room;
     render();
+    playWordSound();
   } catch (error) {
     setStatus(error.message);
   }
@@ -329,6 +385,7 @@ els.stopBtn.addEventListener("click", async () => {
     const payload = await api(`/api/rooms/${state.room.code}/stop`);
     state.room = payload.room;
     render();
+    playFinishSound();
   } catch (error) {
     setStatus(error.message);
   }

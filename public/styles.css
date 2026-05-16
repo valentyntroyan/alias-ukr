@@ -300,7 +300,7 @@ h2 {
 
 .play-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
 }
 
@@ -344,6 +344,13 @@ h2 {
 
 .round-review strong {
   overflow-wrap: anywhere;
+}
+
+.review-tag {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .review-actions {

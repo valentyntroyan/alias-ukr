@@ -80,6 +80,7 @@ function createRoom() {
     skips: 0,
     turnPlayerId: "",
     roundActive: false,
+    roundExpired: false,
     gameOver: false,
     winnerId: "",
     roundEndsAt: 0,
@@ -104,12 +105,14 @@ function getPublicState(room, viewerId = "") {
     wordCount: room.words.length,
     usedCount: room.used.length,
     lastRoundWords: room.lastRoundWords,
+    hasCurrentWord: Boolean(room.currentWord),
     currentWord: canSeeWord ? room.currentWord : "",
     score: room.score,
     scoreTarget: room.scoreTarget,
     skips: room.skips,
     turnPlayerId: room.turnPlayerId,
     roundActive: room.roundActive,
+    roundExpired: room.roundExpired,
     gameOver: room.gameOver,
     winnerId: room.winnerId,
     roundEndsAt: room.roundEndsAt,
@@ -156,6 +159,7 @@ function playerAtTarget(room) {
 }
 
 function scoreDelta(result) {
+  if (result === "skipped") return 0;
   return result === "correct" ? 1 : -1;
 }
 
@@ -189,7 +193,15 @@ function answerCurrentWord(room, result) {
   room.score = roundScore(room.currentRoundWords, "correct");
   room.skips = roundScore(room.currentRoundWords, "incorrect");
   room.used.push(room.currentWord);
-  nextWord(room);
+  if (room.roundExpired) {
+    room.currentWord = "";
+  } else {
+    nextWord(room);
+  }
+}
+
+function skipCurrentWord(room) {
+  answerCurrentWord(room, "skipped");
 }
 
 function updateGameResult(room) {
@@ -217,6 +229,7 @@ function resetGame(room, starterId = "") {
     ? starterId
     : room.players[0]?.id || "";
   room.roundActive = false;
+  room.roundExpired = false;
   room.gameOver = false;
   room.winnerId = "";
   room.roundEndsAt = 0;
@@ -225,6 +238,7 @@ function resetGame(room, starterId = "") {
 function endRound(room) {
   if (!room.roundActive) return;
   room.roundActive = false;
+  room.roundExpired = false;
   room.roundEndsAt = 0;
   room.currentWord = "";
   room.lastRoundExplainerId = room.turnPlayerId;
@@ -241,7 +255,8 @@ function scheduleRoundEnd(room) {
   const ms = Math.max(0, room.roundEndsAt - Date.now());
   setTimeout(() => {
     if (room.roundActive && Date.now() >= room.roundEndsAt) {
-      endRound(room);
+      room.roundExpired = true;
+      broadcast(room);
     }
   }, ms + 100);
 }
@@ -361,6 +376,7 @@ async function handleApi(req, res) {
         room.gameOver = false;
         room.winnerId = "";
         room.roundActive = false;
+        room.roundExpired = false;
         room.roundEndsAt = 0;
       } else if (action === "new-game") {
         if (!room.gameOver) {
@@ -383,6 +399,7 @@ async function handleApi(req, res) {
         room.roundSeconds = Math.min(180, Math.max(15, Number(body.seconds) || 60));
         room.scoreTarget = [50, 100].includes(Number(body.scoreTarget)) ? Number(body.scoreTarget) : room.scoreTarget;
         room.roundActive = true;
+        room.roundExpired = false;
         room.roundEndsAt = Date.now() + room.roundSeconds * 1000;
         nextWord(room);
         scheduleRoundEnd(room);
@@ -418,6 +435,7 @@ async function handleApi(req, res) {
         room.lastRoundWords = [];
         room.lastRoundExplainerId = "";
         room.roundActive = true;
+        room.roundExpired = false;
         room.roundEndsAt = Date.now() + room.roundSeconds * 1000;
         nextWord(room);
         scheduleRoundEnd(room);
@@ -429,13 +447,21 @@ async function handleApi(req, res) {
         if (room.roundActive && room.currentWord) {
           answerCurrentWord(room, "correct");
         }
+      } else if (action === "incorrect") {
+        if (viewerId !== room.turnPlayerId) {
+          json(res, 403, { error: "Only the explaining player can mark words" });
+          return;
+        }
+        if (room.roundActive && room.currentWord) {
+          answerCurrentWord(room, "incorrect");
+        }
       } else if (action === "skip") {
         if (viewerId !== room.turnPlayerId) {
           json(res, 403, { error: "Only the explaining player can skip words" });
           return;
         }
         if (room.roundActive && room.currentWord) {
-          answerCurrentWord(room, "incorrect");
+          skipCurrentWord(room);
         }
       } else if (action === "mark") {
         const item = room.lastRoundWords.find(word => word.id === body.itemId);
@@ -458,6 +484,10 @@ async function handleApi(req, res) {
       } else if (action === "stop") {
         if (viewerId !== room.turnPlayerId) {
           json(res, 403, { error: "Only the explaining player can stop the round" });
+          return;
+        }
+        if (!room.roundExpired) {
+          json(res, 409, { error: "Finish round is available after time is up" });
           return;
         }
         endRound(room);
