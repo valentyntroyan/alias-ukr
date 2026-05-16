@@ -11,6 +11,7 @@ const mimeTypes = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon"
@@ -72,6 +73,7 @@ function createRoom() {
     used: [],
     currentWord: "",
     score: 0,
+    scoreTarget: 50,
     skips: 0,
     turnPlayerId: "",
     roundActive: false,
@@ -89,11 +91,16 @@ function getPublicState(room, viewerId = "") {
 
   return {
     code: room.code,
-    players: room.players,
+    players: room.players.map(player => ({
+      id: player.id,
+      name: player.name,
+      points: Number(player.points || 0)
+    })),
     wordCount: room.words.length,
     usedCount: room.used.length,
     currentWord: canSeeWord ? room.currentWord : "",
     score: room.score,
+    scoreTarget: room.scoreTarget,
     skips: room.skips,
     turnPlayerId: room.turnPlayerId,
     roundActive: room.roundActive,
@@ -129,11 +136,19 @@ function nextWord(room) {
   room.currentWord = room.deck.pop() || "";
 }
 
+function rotateTurn(room) {
+  if (room.players.length < 2 || !room.turnPlayerId) return;
+  const currentIndex = room.players.findIndex(player => player.id === room.turnPlayerId);
+  if (currentIndex === -1) return;
+  room.turnPlayerId = room.players[(currentIndex + 1) % room.players.length].id;
+}
+
 function endRound(room) {
   if (!room.roundActive) return;
   room.roundActive = false;
   room.roundEndsAt = 0;
   room.currentWord = "";
+  rotateTurn(room);
   broadcast(room);
 }
 
@@ -164,7 +179,8 @@ async function handleApi(req, res) {
       const room = createRoom();
       const player = {
         id: crypto.randomUUID(),
-        name: String(body.name || "Player").trim().slice(0, 24) || "Player"
+        name: String(body.name || "Player").trim().slice(0, 24) || "Player",
+        points: 0
       };
       room.players.push(player);
       json(res, 201, { room: getPublicState(room, player.id), player });
@@ -182,11 +198,16 @@ async function handleApi(req, res) {
 
       let player = room.players.find(existing => existing.id === body.playerId);
       if (!player) {
+        if (room.players.length >= 2) {
+          json(res, 409, { error: "Room already has two players" });
+          return;
+        }
         player = {
           id: crypto.randomUUID(),
-          name: String(body.name || "Player").trim().slice(0, 24) || "Player"
+          name: String(body.name || "Player").trim().slice(0, 24) || "Player",
+          points: 0
         };
-        room.players = [...room.players.filter(existing => existing.name !== player.name), player].slice(-4);
+        room.players = [...room.players, player];
       }
 
       broadcast(room);
@@ -209,7 +230,8 @@ async function handleApi(req, res) {
       res.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-cache, no-transform",
-        connection: "keep-alive"
+        connection: "keep-alive",
+        "x-accel-buffering": "no"
       });
       const client = { res, playerId };
       res.write(`event: state\ndata: ${JSON.stringify(getPublicState(room, playerId))}\n\n`);
@@ -241,6 +263,7 @@ async function handleApi(req, res) {
         room.used = [];
         room.currentWord = "";
         room.score = 0;
+        room.scoreTarget = 50;
         room.skips = 0;
         room.roundActive = false;
         room.roundEndsAt = 0;
@@ -250,7 +273,12 @@ async function handleApi(req, res) {
           return;
         }
         room.roundSeconds = Math.min(180, Math.max(15, Number(body.seconds) || 60));
+        room.scoreTarget = [50, 100].includes(Number(body.scoreTarget)) ? Number(body.scoreTarget) : room.scoreTarget;
         room.turnPlayerId = String(body.playerId || room.players[0]?.id || "");
+        if (!room.players.some(player => player.id === room.turnPlayerId)) {
+          json(res, 400, { error: "Choose a player in this room" });
+          return;
+        }
         room.score = 0;
         room.skips = 0;
         room.roundActive = true;
@@ -258,18 +286,34 @@ async function handleApi(req, res) {
         nextWord(room);
         scheduleRoundEnd(room);
       } else if (action === "correct") {
+        if (viewerId !== room.turnPlayerId) {
+          json(res, 403, { error: "Only the explaining player can mark words" });
+          return;
+        }
         if (room.roundActive && room.currentWord) {
+          const guesser = room.players.find(player => player.id !== room.turnPlayerId) || room.players[0];
           room.score += 1;
+          if (guesser) {
+            guesser.points = Number(guesser.points || 0) + 1;
+          }
           room.used.push(room.currentWord);
           nextWord(room);
         }
       } else if (action === "skip") {
+        if (viewerId !== room.turnPlayerId) {
+          json(res, 403, { error: "Only the explaining player can skip words" });
+          return;
+        }
         if (room.roundActive && room.currentWord) {
           room.skips += 1;
           room.deck.unshift(room.currentWord);
           nextWord(room);
         }
       } else if (action === "stop") {
+        if (viewerId !== room.turnPlayerId) {
+          json(res, 403, { error: "Only the explaining player can stop the round" });
+          return;
+        }
         endRound(room);
         json(res, 200, { room: getPublicState(room, viewerId) });
         return;

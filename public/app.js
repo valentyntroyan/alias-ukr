@@ -16,10 +16,12 @@ const els = {
   joinBtn: document.querySelector("#joinBtn"),
   playersList: document.querySelector("#playersList"),
   wordsInput: document.querySelector("#wordsInput"),
+  loadDefaultWordsBtn: document.querySelector("#loadDefaultWordsBtn"),
   saveWordsBtn: document.querySelector("#saveWordsBtn"),
   wordCount: document.querySelector("#wordCount"),
   turnSelect: document.querySelector("#turnSelect"),
   secondsInput: document.querySelector("#secondsInput"),
+  scoreTargetSelect: document.querySelector("#scoreTargetSelect"),
   startBtn: document.querySelector("#startBtn"),
   timer: document.querySelector("#timer"),
   score: document.querySelector("#score"),
@@ -107,14 +109,26 @@ function enterRoom(room, player) {
 function renderPlayers() {
   els.playersList.innerHTML = "";
   els.turnSelect.innerHTML = "";
+  const target = Number(state.room.scoreTarget || els.scoreTargetSelect.value || 50);
 
   for (const player of state.room.players) {
     const li = document.createElement("li");
+    const info = document.createElement("div");
+    info.className = "player-info";
     const name = document.createElement("strong");
     name.textContent = player.name;
     const role = document.createElement("span");
     role.textContent = player.id === state.room.turnPlayerId ? "Explaining" : "Guessing";
-    li.append(name, role);
+    info.append(name, role);
+
+    const score = document.createElement("b");
+    score.className = "player-score";
+    score.textContent = `${player.points || 0}/${target}`;
+    if ((player.points || 0) >= target) {
+      score.classList.add("winner");
+    }
+
+    li.append(info, score);
     els.playersList.append(li);
 
     const option = document.createElement("option");
@@ -145,24 +159,31 @@ function render() {
   els.wordCount.textContent = String(state.room.wordCount);
   els.score.textContent = String(state.room.score);
   els.skips.textContent = String(state.room.skips);
+  els.scoreTargetSelect.value = String(state.room.scoreTarget || 50);
 
   renderPlayers();
   renderTimer();
 
   const explainer = state.room.players.find(player => player.id === state.room.turnPlayerId);
-  els.turnLabel.textContent = state.room.roundActive
-    ? `${explainer?.name || "Player"} explains`
-    : "Round is not active.";
   const isExplainer = state.player?.id === state.room.turnPlayerId;
+  const guesser = state.room.players.find(player => player.id !== state.room.turnPlayerId);
+  els.turnLabel.textContent = state.room.roundActive
+    ? `${explainer?.name || "Player"} explains, ${guesser?.name || "partner"} guesses`
+    : state.room.players.length < 2
+      ? "Waiting for the second player."
+      : "Round is not active.";
   els.currentWord.textContent = state.room.roundActive
     ? (isExplainer ? state.room.currentWord : "Guess the word")
     : "Ready?";
 
   const canPlay = Boolean(state.room.roundActive);
-  els.correctBtn.disabled = !canPlay;
-  els.skipBtn.disabled = !canPlay;
-  els.stopBtn.disabled = !canPlay;
-  els.startBtn.disabled = state.room.wordCount < 2;
+  els.correctBtn.disabled = !canPlay || !isExplainer;
+  els.skipBtn.disabled = !canPlay || !isExplainer;
+  els.stopBtn.disabled = !canPlay || !isExplainer;
+  els.startBtn.disabled = state.room.wordCount < 2 || state.room.players.length < 2 || canPlay;
+  els.turnSelect.disabled = canPlay;
+  els.secondsInput.disabled = canPlay;
+  els.scoreTargetSelect.disabled = canPlay;
 }
 
 function startTimerLoop() {
@@ -212,11 +233,23 @@ els.saveWordsBtn.addEventListener("click", async () => {
   }
 });
 
+els.loadDefaultWordsBtn.addEventListener("click", async () => {
+  try {
+    const response = await fetch("/ukrainian-words.txt", { cache: "no-store" });
+    if (!response.ok) throw new Error("Could not load word pack");
+    els.wordsInput.value = await response.text();
+    setStatus("Ukrainian word pack loaded. Press Use word pack.");
+  } catch (error) {
+    setStatus(error.message);
+  }
+});
+
 els.startBtn.addEventListener("click", async () => {
   try {
     const payload = await api(`/api/rooms/${state.room.code}/start`, {
       playerId: els.turnSelect.value || state.player.id,
-      seconds: els.secondsInput.value
+      seconds: els.secondsInput.value,
+      scoreTarget: els.scoreTargetSelect.value
     });
     state.room = payload.room;
     render();
@@ -228,7 +261,9 @@ els.startBtn.addEventListener("click", async () => {
 
 els.correctBtn.addEventListener("click", async () => {
   try {
-    await api(`/api/rooms/${state.room.code}/correct`);
+    const payload = await api(`/api/rooms/${state.room.code}/correct`);
+    state.room = payload.room;
+    render();
   } catch (error) {
     setStatus(error.message);
   }
@@ -236,7 +271,9 @@ els.correctBtn.addEventListener("click", async () => {
 
 els.skipBtn.addEventListener("click", async () => {
   try {
-    await api(`/api/rooms/${state.room.code}/skip`);
+    const payload = await api(`/api/rooms/${state.room.code}/skip`);
+    state.room = payload.room;
+    render();
   } catch (error) {
     setStatus(error.message);
   }
@@ -244,7 +281,9 @@ els.skipBtn.addEventListener("click", async () => {
 
 els.stopBtn.addEventListener("click", async () => {
   try {
-    await api(`/api/rooms/${state.room.code}/stop`);
+    const payload = await api(`/api/rooms/${state.room.code}/stop`);
+    state.room = payload.room;
+    render();
   } catch (error) {
     setStatus(error.message);
   }

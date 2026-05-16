@@ -201,9 +201,35 @@ h2 {
   padding: 10px 12px;
 }
 
+.player-info {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.player-info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .players span {
   color: var(--muted);
   font-size: 0.84rem;
+}
+
+.player-score {
+  border-radius: 8px;
+  background: #e9f3ee;
+  color: var(--green-dark);
+  min-width: 68px;
+  padding: 7px 9px;
+  text-align: center;
+}
+
+.player-score.winner {
+  background: #fff0cf;
+  color: #7a4b00;
 }
 
 .words-box,

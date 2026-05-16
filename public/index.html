@@ -47,6 +47,7 @@
           <div class="words-box">
             <h2>Words</h2>
             <textarea id="wordsInput" spellcheck="false" placeholder="кіт&#10;сонце&#10;кавун&#10;поїзд"></textarea>
+            <button class="ghost" id="loadDefaultWordsBtn">Load Ukrainian pack</button>
             <button id="saveWordsBtn">Use word pack</button>
             <p class="hint"><span id="wordCount">0</span> words loaded. Paste one word per line or comma-separated.</p>
           </div>
@@ -61,6 +62,13 @@
               Seconds
               <input id="secondsInput" type="number" min="15" max="180" step="15" value="60">
             </label>
+            <label>
+              Points target
+              <select id="scoreTargetSelect">
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
             <button id="startBtn">Start round</button>
           </div>
         </aside>
@@ -72,7 +80,7 @@
               <strong id="timer">--</strong>
             </div>
             <div>
-              <span>Score</span>
+              <span>Round</span>
               <strong id="score">0</strong>
             </div>
             <div>
