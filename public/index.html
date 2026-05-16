@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Alias Online</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <section class="topbar">
+        <div>
+          <h1>Alias Online</h1>
+          <p>Private room word guessing for two players.</p>
+        </div>
+        <div class="room-pill" id="roomPill" hidden>
+          <span>Room</span>
+          <strong id="roomCode">-----</strong>
+        </div>
+      </section>
+
+      <section class="setup" id="setupView">
+        <div class="panel">
+          <h2>Start or join</h2>
+          <label>
+            Your name
+            <input id="nameInput" autocomplete="name" maxlength="24" placeholder="Valentyn">
+          </label>
+          <div class="actions split">
+            <button id="createBtn">Create room</button>
+          </div>
+          <div class="join-row">
+            <input id="joinCodeInput" maxlength="5" placeholder="CODE">
+            <button id="joinBtn">Join</button>
+          </div>
+          <p class="hint">Share the room code or URL after creating a room.</p>
+        </div>
+      </section>
+
+      <section class="game" id="gameView" hidden>
+        <aside class="panel controls">
+          <div>
+            <h2>Players</h2>
+            <ul class="players" id="playersList"></ul>
+          </div>
+
+          <div class="words-box">
+            <h2>Words</h2>
+            <textarea id="wordsInput" spellcheck="false" placeholder="кіт&#10;сонце&#10;кавун&#10;поїзд"></textarea>
+            <button id="saveWordsBtn">Use word pack</button>
+            <p class="hint"><span id="wordCount">0</span> words loaded. Paste one word per line or comma-separated.</p>
+          </div>
+
+          <div>
+            <h2>Round</h2>
+            <label>
+              Explains this round
+              <select id="turnSelect"></select>
+            </label>
+            <label>
+              Seconds
+              <input id="secondsInput" type="number" min="15" max="180" step="15" value="60">
+            </label>
+            <button id="startBtn">Start round</button>
+          </div>
+        </aside>
+
+        <section class="board">
+          <div class="score-strip">
+            <div>
+              <span>Time</span>
+              <strong id="timer">--</strong>
+            </div>
+            <div>
+              <span>Score</span>
+              <strong id="score">0</strong>
+            </div>
+            <div>
+              <span>Skips</span>
+              <strong id="skips">0</strong>
+            </div>
+          </div>
+
+          <div class="word-stage" id="wordStage">
+            <p id="turnLabel">Load words and start a round.</p>
+            <div class="word" id="currentWord">Alias</div>
+          </div>
+
+          <div class="play-actions">
+            <button class="secondary" id="skipBtn">Skip</button>
+            <button id="correctBtn">Correct</button>
+          </div>
+          <button class="ghost" id="stopBtn">Stop round</button>
+          <p class="status" id="status"></p>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
