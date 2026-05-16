@@ -31,6 +31,8 @@ const els = {
   skipBtn: document.querySelector("#skipBtn"),
   correctBtn: document.querySelector("#correctBtn"),
   stopBtn: document.querySelector("#stopBtn"),
+  roundReview: document.querySelector("#roundReview"),
+  roundWordsList: document.querySelector("#roundWordsList"),
   status: document.querySelector("#status")
 };
 
@@ -152,6 +154,41 @@ function renderTimer() {
   els.timer.textContent = String(secondsLeft());
 }
 
+function renderRoundReview() {
+  const words = state.room.lastRoundWords || [];
+  els.roundReview.hidden = state.room.roundActive || !words.length;
+  els.roundWordsList.innerHTML = "";
+  if (els.roundReview.hidden) return;
+
+  for (const item of words) {
+    const li = document.createElement("li");
+    const word = document.createElement("strong");
+    word.textContent = item.word;
+
+    const actions = document.createElement("div");
+    actions.className = "review-actions";
+
+    const incorrect = document.createElement("button");
+    incorrect.type = "button";
+    incorrect.className = "secondary";
+    incorrect.textContent = "Incorrect";
+    incorrect.dataset.wordId = item.id;
+    incorrect.dataset.result = "incorrect";
+    incorrect.disabled = item.result === "incorrect";
+
+    const correct = document.createElement("button");
+    correct.type = "button";
+    correct.textContent = "Correct";
+    correct.dataset.wordId = item.id;
+    correct.dataset.result = "correct";
+    correct.disabled = item.result === "correct";
+
+    actions.append(incorrect, correct);
+    li.append(word, actions);
+    els.roundWordsList.append(li);
+  }
+}
+
 function render() {
   if (!state.room) return;
 
@@ -163,6 +200,7 @@ function render() {
 
   renderPlayers();
   renderTimer();
+  renderRoundReview();
 
   const explainer = state.room.players.find(player => player.id === state.room.turnPlayerId);
   const isExplainer = state.player?.id === state.room.turnPlayerId;
@@ -182,13 +220,15 @@ function render() {
     : "Ready?";
 
   const canPlay = Boolean(state.room.roundActive);
+  const canStartNewGame = state.room.gameOver && state.room.wordCount >= 2 && state.room.players.length >= 2;
+  els.startBtn.textContent = state.room.gameOver ? "Start new game" : "Start round";
   els.correctBtn.disabled = !canPlay || !isExplainer;
   els.skipBtn.disabled = !canPlay || !isExplainer;
   els.stopBtn.disabled = !canPlay || !isExplainer;
-  els.startBtn.disabled = state.room.wordCount < 2 || state.room.players.length < 2 || canPlay || !isExplainer || state.room.gameOver;
+  els.startBtn.disabled = canPlay || (!canStartNewGame && (state.room.wordCount < 2 || state.room.players.length < 2 || !isExplainer));
   els.turnSelect.disabled = true;
-  els.secondsInput.disabled = canPlay || state.room.gameOver || !isExplainer;
-  els.scoreTargetSelect.disabled = canPlay || state.room.gameOver || !isExplainer;
+  els.secondsInput.disabled = canPlay || (!canStartNewGame && !isExplainer);
+  els.scoreTargetSelect.disabled = canPlay || (!canStartNewGame && !isExplainer);
 }
 
 function startTimerLoop() {
@@ -251,7 +291,8 @@ els.loadDefaultWordsBtn.addEventListener("click", async () => {
 
 els.startBtn.addEventListener("click", async () => {
   try {
-    const payload = await api(`/api/rooms/${state.room.code}/start`, {
+    const action = state.room.gameOver ? "new-game" : "start";
+    const payload = await api(`/api/rooms/${state.room.code}/${action}`, {
       seconds: els.secondsInput.value,
       scoreTarget: els.scoreTargetSelect.value
     });
@@ -286,6 +327,22 @@ els.skipBtn.addEventListener("click", async () => {
 els.stopBtn.addEventListener("click", async () => {
   try {
     const payload = await api(`/api/rooms/${state.room.code}/stop`);
+    state.room = payload.room;
+    render();
+  } catch (error) {
+    setStatus(error.message);
+  }
+});
+
+els.roundWordsList.addEventListener("click", async event => {
+  const button = event.target.closest("button[data-word-id]");
+  if (!button) return;
+
+  try {
+    const payload = await api(`/api/rooms/${state.room.code}/mark`, {
+      itemId: button.dataset.wordId,
+      result: button.dataset.result
+    });
     state.room = payload.room;
     render();
   } catch (error) {

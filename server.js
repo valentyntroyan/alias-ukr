@@ -71,6 +71,9 @@ function createRoom() {
     words: [],
     deck: [],
     used: [],
+    currentRoundWords: [],
+    lastRoundWords: [],
+    lastRoundExplainerId: "",
     currentWord: "",
     score: 0,
     scoreTarget: 50,
@@ -100,6 +103,7 @@ function getPublicState(room, viewerId = "") {
     })),
     wordCount: room.words.length,
     usedCount: room.used.length,
+    lastRoundWords: room.lastRoundWords,
     currentWord: canSeeWord ? room.currentWord : "",
     score: room.score,
     scoreTarget: room.scoreTarget,
@@ -151,16 +155,83 @@ function playerAtTarget(room) {
   return room.players.find(player => Number(player.points || 0) >= room.scoreTarget);
 }
 
-function endRound(room) {
-  if (!room.roundActive) return;
-  room.roundActive = false;
-  room.roundEndsAt = 0;
-  room.currentWord = "";
+function scoreDelta(result) {
+  return result === "correct" ? 1 : -1;
+}
+
+function applyPoints(room, playerId, delta) {
+  const player = room.players.find(existing => existing.id === playerId);
+  if (!player) return 0;
+  const previous = Number(player.points || 0);
+  player.points = Math.max(0, previous + delta);
+  return player.points - previous;
+}
+
+function roundScore(words, result) {
+  return words.filter(item => item.result === result).length;
+}
+
+function answerCurrentWord(room, result) {
+  if (!room.roundActive || !room.currentWord) return;
+  const guesser = room.players.find(player => player.id !== room.turnPlayerId) || room.players[0];
+  const item = {
+    id: crypto.randomUUID(),
+    word: room.currentWord,
+    result,
+    guesserId: guesser?.id || "",
+    delta: 0
+  };
+
+  room.currentRoundWords.push(item);
+  if (guesser) {
+    item.delta = applyPoints(room, guesser.id, scoreDelta(result));
+  }
+  room.score = roundScore(room.currentRoundWords, "correct");
+  room.skips = roundScore(room.currentRoundWords, "incorrect");
+  room.used.push(room.currentWord);
+  nextWord(room);
+}
+
+function updateGameResult(room) {
   const winner = playerAtTarget(room);
   if (winner) {
     room.gameOver = true;
     room.winnerId = winner.id;
   } else {
+    room.gameOver = false;
+    room.winnerId = "";
+  }
+}
+
+function resetGame(room, starterId = "") {
+  room.deck = shuffle(room.words);
+  room.used = [];
+  room.currentRoundWords = [];
+  room.lastRoundWords = [];
+  room.lastRoundExplainerId = "";
+  room.currentWord = "";
+  room.score = 0;
+  room.skips = 0;
+  room.players = room.players.map(player => ({ ...player, points: 0 }));
+  room.turnPlayerId = room.players.some(player => player.id === starterId)
+    ? starterId
+    : room.players[0]?.id || "";
+  room.roundActive = false;
+  room.gameOver = false;
+  room.winnerId = "";
+  room.roundEndsAt = 0;
+}
+
+function endRound(room) {
+  if (!room.roundActive) return;
+  room.roundActive = false;
+  room.roundEndsAt = 0;
+  room.currentWord = "";
+  room.lastRoundExplainerId = room.turnPlayerId;
+  room.lastRoundWords = room.currentRoundWords;
+  room.currentRoundWords = [];
+  updateGameResult(room);
+  if (!room.gameOver) {
     rotateTurn(room);
   }
   broadcast(room);
@@ -278,6 +349,9 @@ async function handleApi(req, res) {
         room.words = words;
         room.deck = shuffle(words);
         room.used = [];
+        room.currentRoundWords = [];
+        room.lastRoundWords = [];
+        room.lastRoundExplainerId = "";
         room.currentWord = "";
         room.score = 0;
         room.scoreTarget = 50;
@@ -288,6 +362,30 @@ async function handleApi(req, res) {
         room.winnerId = "";
         room.roundActive = false;
         room.roundEndsAt = 0;
+      } else if (action === "new-game") {
+        if (!room.gameOver) {
+          json(res, 409, { error: "Finish the current game first" });
+          return;
+        }
+        if (!room.words.length) {
+          json(res, 400, { error: "Add words before starting" });
+          return;
+        }
+        if (room.players.length < 2) {
+          json(res, 400, { error: "Wait for the second player" });
+          return;
+        }
+        if (!room.players.some(player => player.id === viewerId)) {
+          json(res, 403, { error: "Join the room before starting a new game" });
+          return;
+        }
+        resetGame(room, viewerId);
+        room.roundSeconds = Math.min(180, Math.max(15, Number(body.seconds) || 60));
+        room.scoreTarget = [50, 100].includes(Number(body.scoreTarget)) ? Number(body.scoreTarget) : room.scoreTarget;
+        room.roundActive = true;
+        room.roundEndsAt = Date.now() + room.roundSeconds * 1000;
+        nextWord(room);
+        scheduleRoundEnd(room);
       } else if (action === "start") {
         if (room.gameOver) {
           json(res, 409, { error: "Game is over. Load words again to start a new game." });
@@ -316,6 +414,9 @@ async function handleApi(req, res) {
         }
         room.score = 0;
         room.skips = 0;
+        room.currentRoundWords = [];
+        room.lastRoundWords = [];
+        room.lastRoundExplainerId = "";
         room.roundActive = true;
         room.roundEndsAt = Date.now() + room.roundSeconds * 1000;
         nextWord(room);
@@ -326,13 +427,7 @@ async function handleApi(req, res) {
           return;
         }
         if (room.roundActive && room.currentWord) {
-          const guesser = room.players.find(player => player.id !== room.turnPlayerId) || room.players[0];
-          room.score += 1;
-          if (guesser) {
-            guesser.points = Number(guesser.points || 0) + 1;
-          }
-          room.used.push(room.currentWord);
-          nextWord(room);
+          answerCurrentWord(room, "correct");
         }
       } else if (action === "skip") {
         if (viewerId !== room.turnPlayerId) {
@@ -340,9 +435,25 @@ async function handleApi(req, res) {
           return;
         }
         if (room.roundActive && room.currentWord) {
-          room.skips += 1;
-          room.deck.unshift(room.currentWord);
-          nextWord(room);
+          answerCurrentWord(room, "incorrect");
+        }
+      } else if (action === "mark") {
+        const item = room.lastRoundWords.find(word => word.id === body.itemId);
+        const result = String(body.result || "");
+        if (!item || !["correct", "incorrect"].includes(result)) {
+          json(res, 400, { error: "Choose a reviewed word and result" });
+          return;
+        }
+        if (item.result !== result) {
+          const desiredDelta = scoreDelta(result);
+          item.delta += applyPoints(room, item.guesserId, desiredDelta - Number(item.delta || 0));
+          item.result = result;
+          room.score = roundScore(room.lastRoundWords, "correct");
+          room.skips = roundScore(room.lastRoundWords, "incorrect");
+          updateGameResult(room);
+          if (!room.gameOver && room.turnPlayerId === room.lastRoundExplainerId) {
+            rotateTurn(room);
+          }
         }
       } else if (action === "stop") {
         if (viewerId !== room.turnPlayerId) {
@@ -408,5 +519,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Alias Online running at http://localhost:${PORT}`);
+  console.log(`Alias for Vladka running at http://localhost:${PORT}`);
 });

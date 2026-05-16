@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Alias Online</title>
+    <title>Alias for Vladka</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <main class="app">
       <section class="topbar">
         <div>
-          <h1>Alias Online</h1>
+          <h1>Alias for Vladka</h1>
           <p>Private room word guessing for two players.</p>
         </div>
         <div class="room-pill" id="roomPill" hidden>
@@ -69,7 +69,6 @@
                 <option value="100">100</option>
               </select>
             </label>
-            <button id="startBtn">Start round</button>
           </div>
         </aside>
 
@@ -84,7 +83,7 @@
               <strong id="score">0</strong>
             </div>
             <div>
-              <span>Skips</span>
+              <span>Incorrect</span>
               <strong id="skips">0</strong>
             </div>
           </div>
@@ -94,11 +93,16 @@
             <div class="word" id="currentWord">Alias</div>
           </div>
 
+          <button id="startBtn">Start round</button>
           <div class="play-actions">
-            <button class="secondary" id="skipBtn">Skip</button>
+            <button class="secondary" id="skipBtn">Incorrect</button>
             <button id="correctBtn">Correct</button>
           </div>
           <button class="ghost" id="stopBtn">Stop round</button>
+          <section class="round-review" id="roundReview" hidden>
+            <h2>Round words</h2>
+            <ul id="roundWordsList"></ul>
+          </section>
           <p class="status" id="status"></p>
         </section>
       </section>

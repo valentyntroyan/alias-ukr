@@ -1,4 +1,4 @@
-# Alias Online
+# Alias for Vladka
 
 A small dependency-free web version of Alias for private online rooms.
 

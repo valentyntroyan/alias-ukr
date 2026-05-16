@@ -2,7 +2,7 @@
   "name": "alias-online",
   "version": "1.0.0",
   "private": true,
-  "description": "A small online Alias word game for private rooms.",
+  "description": "Alias for Vladka, a small online word game for private rooms.",
   "scripts": {
     "start": "node server.js"
   },
