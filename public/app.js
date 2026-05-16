@@ -167,23 +167,28 @@ function render() {
   const explainer = state.room.players.find(player => player.id === state.room.turnPlayerId);
   const isExplainer = state.player?.id === state.room.turnPlayerId;
   const guesser = state.room.players.find(player => player.id !== state.room.turnPlayerId);
+  const winner = state.room.players.find(player => player.id === state.room.winnerId);
   els.turnLabel.textContent = state.room.roundActive
     ? `${explainer?.name || "Player"} explains, ${guesser?.name || "partner"} guesses`
-    : state.room.players.length < 2
+    : state.room.gameOver
+      ? `${winner?.name || "Player"} wins`
+      : state.room.players.length < 2
       ? "Waiting for the second player."
-      : "Round is not active.";
+      : `${explainer?.name || "Player"} starts the next round.`;
   els.currentWord.textContent = state.room.roundActive
     ? (isExplainer ? state.room.currentWord : "Guess the word")
+    : state.room.gameOver
+      ? "Game over"
     : "Ready?";
 
   const canPlay = Boolean(state.room.roundActive);
   els.correctBtn.disabled = !canPlay || !isExplainer;
   els.skipBtn.disabled = !canPlay || !isExplainer;
   els.stopBtn.disabled = !canPlay || !isExplainer;
-  els.startBtn.disabled = state.room.wordCount < 2 || state.room.players.length < 2 || canPlay;
-  els.turnSelect.disabled = canPlay;
-  els.secondsInput.disabled = canPlay;
-  els.scoreTargetSelect.disabled = canPlay;
+  els.startBtn.disabled = state.room.wordCount < 2 || state.room.players.length < 2 || canPlay || !isExplainer || state.room.gameOver;
+  els.turnSelect.disabled = true;
+  els.secondsInput.disabled = canPlay || state.room.gameOver || !isExplainer;
+  els.scoreTargetSelect.disabled = canPlay || state.room.gameOver || !isExplainer;
 }
 
 function startTimerLoop() {
@@ -247,7 +252,6 @@ els.loadDefaultWordsBtn.addEventListener("click", async () => {
 els.startBtn.addEventListener("click", async () => {
   try {
     const payload = await api(`/api/rooms/${state.room.code}/start`, {
-      playerId: els.turnSelect.value || state.player.id,
       seconds: els.secondsInput.value,
       scoreTarget: els.scoreTargetSelect.value
     });

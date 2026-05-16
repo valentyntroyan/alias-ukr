@@ -77,6 +77,8 @@ function createRoom() {
     skips: 0,
     turnPlayerId: "",
     roundActive: false,
+    gameOver: false,
+    winnerId: "",
     roundEndsAt: 0,
     roundSeconds: 60,
     createdAt: Date.now(),
@@ -104,6 +106,8 @@ function getPublicState(room, viewerId = "") {
     skips: room.skips,
     turnPlayerId: room.turnPlayerId,
     roundActive: room.roundActive,
+    gameOver: room.gameOver,
+    winnerId: room.winnerId,
     roundEndsAt: room.roundEndsAt,
     roundSeconds: room.roundSeconds
   };
@@ -143,12 +147,22 @@ function rotateTurn(room) {
   room.turnPlayerId = room.players[(currentIndex + 1) % room.players.length].id;
 }
 
+function playerAtTarget(room) {
+  return room.players.find(player => Number(player.points || 0) >= room.scoreTarget);
+}
+
 function endRound(room) {
   if (!room.roundActive) return;
   room.roundActive = false;
   room.roundEndsAt = 0;
   room.currentWord = "";
-  rotateTurn(room);
+  const winner = playerAtTarget(room);
+  if (winner) {
+    room.gameOver = true;
+    room.winnerId = winner.id;
+  } else {
+    rotateTurn(room);
+  }
   broadcast(room);
 }
 
@@ -208,6 +222,9 @@ async function handleApi(req, res) {
           points: 0
         };
         room.players = [...room.players, player];
+        if (!room.turnPlayerId) {
+          room.turnPlayerId = room.players[0]?.id || "";
+        }
       }
 
       broadcast(room);
@@ -265,18 +282,36 @@ async function handleApi(req, res) {
         room.score = 0;
         room.scoreTarget = 50;
         room.skips = 0;
+        room.players = room.players.map(player => ({ ...player, points: 0 }));
+        room.turnPlayerId = room.players[0]?.id || "";
+        room.gameOver = false;
+        room.winnerId = "";
         room.roundActive = false;
         room.roundEndsAt = 0;
       } else if (action === "start") {
+        if (room.gameOver) {
+          json(res, 409, { error: "Game is over. Load words again to start a new game." });
+          return;
+        }
         if (!room.words.length) {
           json(res, 400, { error: "Add words before starting" });
           return;
         }
+        if (room.players.length < 2) {
+          json(res, 400, { error: "Wait for the second player" });
+          return;
+        }
         room.roundSeconds = Math.min(180, Math.max(15, Number(body.seconds) || 60));
         room.scoreTarget = [50, 100].includes(Number(body.scoreTarget)) ? Number(body.scoreTarget) : room.scoreTarget;
-        room.turnPlayerId = String(body.playerId || room.players[0]?.id || "");
+        if (!room.turnPlayerId) {
+          room.turnPlayerId = room.players[0]?.id || "";
+        }
         if (!room.players.some(player => player.id === room.turnPlayerId)) {
           json(res, 400, { error: "Choose a player in this room" });
+          return;
+        }
+        if (viewerId !== room.turnPlayerId) {
+          json(res, 403, { error: "Only the next explaining player can start this round" });
           return;
         }
         room.score = 0;
